@@ -1,0 +1,290 @@
+---
+title: "HW7"
+author: "Vicky Espinoza"
+date: "April 19, 2018"
+output: html_document
+---
+
+<span style="color:blue"> 1. For the Water Years 2005-2012, develop a predictive model of the *mean monthly* Chl-a  concentration in the California Bay Delta using other *mean monthly* water quality variables.
+*Be sure to show your work, including multiple model comparison (or step models), provide quantification and explain the reasoning behind your final model selection.</span>
+
+ 
+Then let R do the stepwise partial correlation. 
+
+First, let's load in our water quality data and filter data for 2005-2016.
+```{r}
+require(tidyverse)
+require(lubridate)
+require(dplyr)
+require(data.table)
+require(reshape2)
+require(tidyr)
+
+
+#water2<- as_tibble(emp.tidy)%>%
+  #mutate(year=format(SampleDate, "%Y"), month=format(SampleDate, "%m"))%>%
+   #group_by(year,month)%>%
+   #filter(year>=2005)
+#water2$Depth<- as.double(water2$Depth)
+
+                      
+#waterdata_final<-summarise_all(water2,mean,na.rm=TRUE)
+
+```
+
+```{r}
+#I do not see the data divided or filtered by water year. Here are some initial data manipulation suggestions to add and subset water year.
+
+#Read in data
+wq <- read_csv("BayDeltaWQ.csv", col_names = TRUE, na = c("NA", "n/p"), guess_max = 30000)
+
+#Add month and year columns to dataset and group by year/month
+wq.grouped <- as.tibble(wq) %>% 
+  mutate(year = format(SampleDate, "%Y"), month = format(SampleDate, "%m")) %>% 
+  group_by(year, month) %>% 
+  filter(year>=2004)
+wq.grouped$Depth <- as.double(wq.grouped$Depth)
+wq.summary <- summarise_all(wq.grouped, mean, na.rm = TRUE)
+
+#Add Water Year to dataset
+wq.summary$year <- as.numeric(wq.summary$year)
+wq.summary$month <- as.numeric(wq.summary$month)
+wq.summary$WY <- ifelse(wq.summary$month>=10, wq.summary$year+1, wq.summary$year)
+wq.wy <- subset(wq.summary, wq.summary$WY >= 2005 & wq.summary$WY <= 2012)
+```
+
+
+The variables that I chose to start constructing the model are (these are variables that have measurements and are not completely empty): 
+
+* Oxygen 
+* Secchi Depth
+* Temperature 
+* Turbidity 
+* pH 
+* Depth 
+* Conductance
+These are the results of the stepwise regression. 
+```{r}
+
+lm1 <- step(lm(`Chlorophyll a` ~ Oxygen + `Secchi Depth` + Temperature + Turbidity + Depth + `Conductance (EC)`, waterdata_final))
+
+
+```
+The results from the stepwise regression show that Oxygen, Temperature and Turbidity are variables that are best suited to predict Chlorophyll a
+
+ * <span style="color:blue"> Which variables are highly correlated with the others? How did you account for this?</span>
+ 
+ using the results from the stepwise regression I am going to check the correlation between variables to ensure that variables are not highly correlated leading to overfitting of my model.
+ 
+```{r}
+pairs(~`Chlorophyll a` + Oxygen  + Temperature + Turbidity, waterdata_final)
+```
+ Oxygen and Temperature look to be highly correlated, so we will take the correlation of Chlorophyll a with Oxgen and Temperature separately
+```{r}
+require(dplyr)
+cor(residuals(lm(`Chlorophyll a`~ Oxygen, data = waterdata_final)), residuals(lm(Temperature~`Chlorophyll a`, data = waterdata_final)))
+
+```
+Negative correlation of variables with chlorophyll a
+```{r}
+cor(waterdata_final$`Chlorophyll a`,waterdata_final$Temperature)
+```
+positive correaltion of Chlorophyll a and temperature, which makes sense becuase bioproductivity increases with temperature. 
+
+```{r}
+require(dplyr)
+cor(residuals(lm(`Chlorophyll a`~ Oxygen, data = waterdata_final)), residuals(lm(Temperature~Oxygen, data = waterdata_final)))
+
+```
+
+High correlation of variables wit  Oxygen
+
+chlorophyll a is highly postively correlated with Temperature.
+```{r}
+cor(waterdata_final$`Chlorophyll a`,waterdata_final$Oxygen)
+```
+ Chlorphyll a is negatively correaltion with Oxygen. 
+ 
+```{r}
+
+require(dplyr)
+cor(residuals(lm(`Chlorophyll a`~ Temperature, data = waterdata_final)), residuals(lm(Oxygen~Temperature, data = waterdata_final)))
+
+```
+Positive but not highly correlation variables with temperature.
+ 
+ * <span style="color:blue"> Quantify how much variance in mean monthly Chl-a is explained by the variables you selected.</span>
+```{r}
+lm.null <- lm(`Chlorophyll a` ~ 1, data = waterdata_final); summary(lm.null)
+
+```
+```{r}
+lm.cla.temp <- lm(`Chlorophyll a` ~ Temperature, data = waterdata_final); summary(lm.cla.temp)
+```
+```{r}
+lm.cla.oxy <- lm(`Chlorophyll a`~ Oxygen, data = waterdata_final); summary(lm.cla.oxy)
+```
+```{r}
+lm.cla.temp.oxy <- lm(`Chlorophyll a`~ Temperature + Oxygen, data = waterdata_final); summary(lm.cla.temp.oxy)
+```
+
+
+```{r}
+require(broom)
+require(tidyverse)
+lms <- list(null=lm.null, cla.temp = lm.cla.temp, cla.oxy = lm.cla.oxy, cla.temp.oxy = lm.cla.temp.oxy)
+lms.stats <- mapply(glance, lms)
+colnames(lms.stats) <- names(lms)
+lms.stats
+```
+The better model looks like the cla.temp.oxy based on the AIC and BIC (lower is better)
+
+```{r}
+lms.coeffs <- lapply(lms, tidy)
+lms.coeffs
+```
+```{r}
+lms.stats["adj.r.squared",]
+```
+Adding in Oxygen makes a huge difference in the adusted R squared. 
+
+ANOVA on our models
+```{r}
+a <- anova(lm.cla.temp.oxy, lm.cla.oxy)
+a
+```
+
+```{r}
+b <- anova(lm.cla.temp.oxy, lm.cla.temp)
+b
+```
+
+
+
+<span style="color:blue"> 2. Parallel Regression- Parallel regression specifies an additive model, where there is one regression line (for the continuous predictor) which is displaced vertically according to the mean value of the discrete predictor. It hypothesizes that the only effect of the discrete predictor is to adjust the mean, but that the relation between the continuous predictor and the response variable is then the same for all classes of the discrete predictor.
+Using your mean monthly water quality dataset for CA WY 2005-2012, create a new discrete value called "season", and assign a label to your data for "wet season" and "dry season" (you will have decide what constitutes wet and dry). Model the mean monthly Chl-a concentration as a function of season and the water quality variable you idenitifed as MOST important in explaining the variance of Chl-a from question 1. </span>
+
+
+Create the discrete values for season dry season is from May to October and wet season is from November to April. The most important variable (between temperature and oxygen) that I identified in Problem 1 is Oxygen since adding Oxygen to the model increases the adjusted R squared significantly.
+
+The way that I defined wet and dry season are below: When I call in dry and wet I call in the temperature because we don't have precipitation which would have been an ideal variable. 
+```{r}
+#I will call wet season defined by temperatures between 50-75 F (10-24 C) which occur November to April
+wetseason <- subset(waterdata_final, waterdata_final$month<="04"| waterdata_final$month>="11")
+
+#I will call dry season defined by temperatures between 75-100 F (24-38) which occur May to October
+dryseason <- subset(waterdata_final, waterdata_final$month>="05" & waterdata_final$month<="10" )
+```
+
+
+ * <span style="color:blue">Model them first separately, then as an additive model, e.g.:</span>
+    * <span style="color:blue">lm(Chl-a ~ season)</span>
+```{r}
+
+lm.dry.temp<-lm(dryseason$`Chlorophyll a` ~ dryseason$Temperature)
+lm.dry.temp
+
+lm.wet.temp<-lm(wetseason$`Chlorophyll a`~ wetseason$Temperature)
+lm.wet.temp
+```
+Here my dry season has a steeper temperature during the dry season than in the wet season
+    
+    * <span style="color:blue">lm(Chl-a ~ my_most_important_variable)</span>
+    
+Recall I chose Oxygen to be my important variable and we can see that the slope for oxygen during the wet season is positive and negative during the dry season. This makes sense from a biological stand point because dry season does not provide recirculation of oxygen and nutrients in the water column reducing the Chl-a bioproductivity.
+    
+```{r}
+
+lm.dry.oxy<-lm(dryseason$`Chlorophyll a` ~ dryseason$Oxygen)
+lm.dry.oxy
+
+lm.wet.oxy<-lm(wetseason$`Chlorophyll a`~ wetseason$Oxygen)
+lm.wet.oxy
+```
+    
+    
+    * <span style="color:blue">lm(Chl-a ~ season + my_most_important_variable)</span>
+    
+```{r}
+lm.dry.oxy.temp<-lm(dryseason$`Chlorophyll a` ~ dryseason$Temperature + dryseason$Oxygen)
+lm.dry.oxy.temp
+
+lm.wet.oxy.temp<-lm(wetseason$`Chlorophyll a`~ wetseason$Temperature +  wetseason$Oxygen)
+lm.wet.oxy.temp
+```
+Not sure how to interpret the fact that the dryseason slopes are higher and positive for the dry season and still positive during the wet season but lower values. 
+    
+ * <span style="color:blue">How much of the variation in Chl-a is explained by season? By your most important variable? By both together? Is the combined model better than individual models? </span>
+ 
+ variation in 
+```{r}
+#variation of Oxygen
+
+var.dry.oxy<-var(dryseason$`Chlorophyll a`,dryseason$Oxygen)
+var.dry.oxy
+
+var.wet.oxy<-var(wetseason$`Chlorophyll a`,wetseason$Oxygen)
+var.wet.oxy
+
+#variation of both together 
+var.dry.oxy.temp<-var(dryseason$`Chlorophyll a`,dryseason$Temperature+dryseason$Oxygen)
+var.dry.oxy.temp
+
+var.wet.oxy.temp<-var(wetseason$`Chlorophyll a`,wetseason$Temperature+wetseason$Oxygen)
+var.wet.oxy.temp
+```
+For Chl-a and oxygen have higher variance during the wet season than in the dry season. 
+For Chl-a and oxygen +temperature together have high variance during wet and dry season, but higher in the wet season.
+The variance is much less for oxygen in the wet and dry season so I am going to interpret that as being better than having high variation.
+
+ * <span style="color:blue">In the parallel regression model (season and your most important variable as predictors), what are the differences in the means between seasons? What is the slope of the linear regression after accounting for season? How does this compare with the slope of the linear regression not considering season? </span>
+ The differences in the means is much higher in the dry season for oxygen the standard error from the estimate range from 1 to 8. This is large variation.I'm not sure how I can interpret that results to deduce something about Chl-a and oxygen.
+```{r}
+
+summary(lm.wet.oxy) #slope compared to year round is much higher and positive
+summary(lm.dry.oxy) # less negative slope than year round 
+summary(lm.cla.oxy) # highly negative slope
+```
+ 
+* <span style="color:blue">Are the residuals normally distributed? </span>
+
+```{r}
+res.dry.oxy.temp<-stem(residuals(lm.dry.oxy.temp)) #dry season; skewed right
+res.dry.oxy.temp
+
+res.wet.oxy.temp<-stem(residuals(lm.wet.oxy.temp)) #wet season;normal
+res.wet.oxy.temp
+
+res.cla.temp.oxy<-stem(residuals(lm.cla.temp.oxy)) #yearround ; skewed right 
+res.cla.temp.oxy
+```
+We can see that the multi-model of chl-a with oxygen and temperature during the wet season is more normally distributed than the dry season (stemplot #1) and the entire year model (stemplot #3) which are skewed left.
+
+
+* <span style="color:blue">Plot Chl-a vs your most important variable, with the observations colored by season. Add the paralell regression lines from the combined model in the appropraite colors, and add the univariate regression line. </span>
+
+```{r}
+a<-lm(wetseason$Oxygen ~wetseason$`Chlorophyll a`)
+b<-lm(dryseason$Oxygen ~dryseason$`Chlorophyll a`)
+a
+b
+
+p<- ggplot()+
+  geom_point(data=dryseason, aes(x=`Chlorophyll a`,y=Oxygen),colour="red")+
+  geom_abline(aes(intercept=8.98847,slope=0.07872,colour="blue"))+
+  geom_point(data=wetseason, aes(x=`Chlorophyll a`,y=Oxygen),colour="blue")+
+  geom_abline(aes(intercept=8.046151,slope=-0.0073635,colour="red"))
+
+
+p+scale_colour_manual(name="Season",
+                         values=c("blue", "red"),
+                         labels=c("Wet", "Dry"))
+      
+```
+Note: blue dots correspond to wet season and red dots correspond to dry season. 
+
+We can see that there is a positive correlation between Chl-a and oxygen during the wet season. 
+
+##Conclusions 
+Overall, i chose the important variable to be oxygen. The two contenders were temperature and oxygen, but we can see that these two are highly correlated so I will not chose a model with both these varaibles due to an overfitted model if this is selected. I will chose a model that only selects oxygen to predict Chl-a to begin with (starting with a simple model). Oxygen had a large influencing factor when I added it to the Chl-a and temperature model by increasing the adjusted R2 significantly. Oxygen is positivel correlated with Chl-a in the wet season and inversely or negatively correlaed with Chl-a in the dry season.
+
